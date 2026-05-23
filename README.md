@@ -1,4 +1,4 @@
-\# SIAC Postprocessing for DG Advection
+# SIAC Postprocessing for DG Advection
 
 
 
@@ -10,21 +10,21 @@ The initial goals are:
 
 
 
-\- implement a modal DG solver for 1D linear advection,
+- implement a modal DG solver for 1D linear advection,
 
-\- initialize the solution using an L2 projection,
+- initialize the solution using an L2 projection,
 
-\- evolve the DG solution using RK4 time stepping,
+- evolve the DG solution using RK4 time stepping,
 
-\- add controlled Gaussian noise to the initial data,
+- add controlled Gaussian noise to the initial data,
 
-\- apply symmetric and boundary-aware SIAC filters,
+- apply symmetric and boundary-aware SIAC filters,
 
-\- compare filtered and unfiltered DG solutions.
+- compare filtered and unfiltered DG solutions.
 
 
 
-\## Project structure
+## Project structure
 
 
 
