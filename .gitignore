@@ -9,8 +9,20 @@ __pycache__/
 venv/
 env/
 
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+
 # Jupyter
 .ipynb_checkpoints/
+
+# Testing / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # VS Code
 .vscode/
