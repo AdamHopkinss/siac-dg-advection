@@ -26,6 +26,14 @@ def relative_l2_error_discrete(u_num, u_exact):
     """
     return np.linalg.norm(u_num - u_exact) / np.linalg.norm(u_exact)
 
+def relative_l2_error_from_grid(u_num, u_exact, x):
+    """
+    Approximate relative L2 error from pointwise values on a grid.
+    """
+    err_sq = np.trapezoid((u_num - u_exact)**2, x)
+    ref_sq = np.trapezoid(u_exact**2, x)
+
+    return np.sqrt(err_sq / ref_sq)
 
 def l2_error_dg(dg, exact_solution, t=0.0, num_quad=None):
     """
