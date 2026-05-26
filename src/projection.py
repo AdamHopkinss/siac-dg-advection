@@ -200,3 +200,173 @@ def add_modal_coefficient_noise(dg, sigma, seed=None, preserve_cell_average=True
     }
 
     return dg_noisy
+
+
+####### Functions for projecting sampled functions/data #######
+
+# Since the samples may be noisy and may not align with the DG mesh,
+# we use a trapezoidal rule on the sampled data. Mesh edges are inserted
+# into the sample grid so that each element integral is computed over the
+# full element interval.
+
+def insert_mesh_edges_into_samples(x_data, u_data, edges, tol=1e-14):
+    """
+    Insert all DG mesh edges into a sampled 1D grid.
+
+    Values at inserted mesh edges are obtained by linear interpolation.
+    This avoids extrapolation and ensures that each DG cell integration
+    includes both cell endpoints.
+
+    Parameters
+    ----------
+    x_data : ndarray, shape (N,)
+        Original sample locations, assumed strictly increasing.
+    u_data : ndarray, shape (N,)
+        Sampled values at x_data.
+    edges : ndarray, shape (K+1,)
+        DG mesh edges to insert.
+    tol : float
+        Tolerance for avoiding duplicate or nearly duplicate points.
+
+    Returns
+    -------
+    x_aug : ndarray
+        Augmented grid containing the original sample points and all mesh edges.
+    u_aug : ndarray
+        Sampled/interpolated values on the augmented grid.
+    """
+    x_data = np.asarray(x_data, dtype=float)
+    u_data = np.asarray(u_data, dtype=float)
+    edges = np.asarray(edges, dtype=float)
+
+    if x_data.ndim != 1 or u_data.ndim != 1:
+        raise ValueError("x_data and u_data must be one-dimensional.")
+    if len(x_data) != len(u_data):
+        raise ValueError("x_data and u_data must have the same length.")
+    if not np.all(np.diff(x_data) > 0):
+        raise ValueError("x_data must be strictly increasing.")
+
+    if edges[0] < x_data[0] - tol or edges[-1] > x_data[-1] + tol:
+        raise ValueError(
+            "Mesh domain must lie inside sampled-data domain. "
+            "Otherwise endpoint interpolation would require extrapolation."
+        )
+
+    # Combine original points and mesh edges
+    x_combined = np.concatenate([x_data, edges])
+    x_combined.sort()
+
+    # Remove near-duplicates
+    keep = np.ones(len(x_combined), dtype=bool)
+    keep[1:] = np.diff(x_combined) > tol
+    x_aug = x_combined[keep]
+
+    # Interpolate data values onto augmented grid
+    u_aug = np.interp(x_aug, x_data, u_data)
+
+    return x_aug, u_aug
+
+def trapezoidal_weights(x):
+    """
+    Composite trapezoidal weights for a sorted, possibly nonuniform 1D grid.
+
+    The returned weights satisfy
+
+        np.trapezoid(f, x) == np.sum(trapezoidal_weights(x) * f)
+
+    up to floating-point roundoff.
+    """
+    x = np.asarray(x)
+
+    if x.ndim != 1:
+        raise ValueError("x must be one-dimensional.")
+    if len(x) < 2:
+        raise ValueError("Need at least two points for trapezoidal quadrature.")
+    if not np.all(np.diff(x) > 0):
+        raise ValueError("x must be strictly increasing.")
+
+    w = np.zeros_like(x, dtype=float)
+    w[0] = 0.5 * (x[1] - x[0])
+    w[-1] = 0.5 * (x[-1] - x[-2])
+
+    if len(x) > 2:
+        w[1:-1] = 0.5 * (x[2:] - x[:-2])
+
+    return w
+
+
+def l2_project_sampled_cell_trapezoid(x_cell, u_cell, p, x_left, x_right):
+    """
+    Project sampled values on one DG cell using trapezoidal quadrature.
+
+    Assumes x_cell includes both x_left and x_right. The physical sample
+    points are mapped to the reference element [-1, 1], and the trapezoidal
+    rule is applied in reference coordinates.
+    """
+    x_mid = 0.5 * (x_left + x_right)
+    h = x_right - x_left
+
+    r_cell = 2.0 * (x_cell - x_mid) / h
+    w_r = trapezoidal_weights(r_cell)
+
+    V = legendre_vandermonde(eval_nodes=r_cell, p=p)
+
+    coeffs = V.T @ (w_r * u_cell)
+
+    return coeffs
+
+def l2_project_sampled_mesh_trapezoid(x_data, u_data, p, mesh):
+    """
+    L2-project sampled 1D data onto a DG mesh using trapezoidal quadrature.
+
+    Mesh edges are inserted into the sampled grid once as a preprocessing step.
+    """
+    K = mesh["K"]
+    edges = np.asarray(mesh["edges"])
+    order = p + 1
+    
+    # Build augmented sample grid with all DG mesh edges inserted
+    x_aug, u_aug = insert_mesh_edges_into_samples(
+        x_data=x_data, 
+        u_data=u_data, 
+        edges=edges
+    )
+    
+    coeffs = np.zeros((K, order))
+    
+    for j in range(K):
+        x_left = edges[j]
+        x_right = edges[j+1]
+        
+        i0 = np.searchsorted(x_aug, x_left, side="left")
+        i1 = np.searchsorted(x_aug, x_right, side="right")
+        
+        x_cell = x_aug[i0:i1]
+        u_cell = u_aug[i0:i1]
+        
+        coeffs[j, :] = l2_project_sampled_cell_trapezoid(
+            x_cell=x_cell, 
+            u_cell=u_cell, 
+            p=p, 
+            x_left=x_left, 
+            x_right=x_right,
+        )
+        
+    dg = {
+        "p": p,
+        "order": order,
+        "K": K,
+        "mesh": mesh,
+        "coeffs": coeffs,
+        "projection_type": "sampled_trapezoidal_augmented_grid",
+        
+        # Original sampled data
+        "x_sample": np.asarray(x_data).copy(),
+        "u_sample": np.asarray(u_data).copy(),
+        
+        # Augmented data used for projection
+        "x_aug": x_aug,
+        "u_aug": u_aug,
+    }
+    
+    return dg
